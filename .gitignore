@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Virtual environment
+.venv/
+venv/
+
+# YOLO weights — fetched automatically by Ultralytics on first run
+*.pt
+
+# Tool output — trimmed clips (can be large; often contains personal footage)
+exports/
+
+# macOS
+.DS_Store

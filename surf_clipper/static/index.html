@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>surf-clipper</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+
+<!-- Always-visible name of the current view, so screens can be referred to
+     by a shared name. Updated from showPhase() / modal open+close. -->
+<div id="view-badge" aria-live="polite"></div>
+
+<!-- ── Session Prompt ────────────────────────────────────────────────── -->
+<div id="phase-session-prompt" class="phase" hidden>
+  <div class="center-card">
+    <h1>surf-clipper</h1>
+    <p class="subtitle">Name this session</p>
+    <p class="drop-hint">
+      Every video you process in this session is exported into one folder with
+      this name, split into a sub-folder per surfer.
+    </p>
+    <div class="file-row">
+      <input type="text" id="session-name-input" placeholder="e.g. 2024-06-15 Praia do Norte" spellcheck="false" />
+    </div>
+    <button id="btn-session-continue" class="btn-primary" disabled>Continue →</button>
+  </div>
+</div>
+
+<!-- ── File Picker ────────────────────────────────────────────────────── -->
+<div id="phase-file-picker" class="phase" hidden>
+  <div class="center-card">
+    <h1>surf-clipper</h1>
+    <p class="subtitle">Select a GoPro surf session video to begin</p>
+    <p class="drop-hint">Drag &amp; drop a video file anywhere on this card, or:</p>
+    <div class="file-row">
+      <input type="text" id="video-path-input" placeholder="/path/to/video.mp4" spellcheck="false" />
+      <button id="btn-browse" class="btn-secondary">Browse…</button>
+    </div>
+    <button id="btn-start-scan" class="btn-primary" disabled>Start scanning →</button>
+  </div>
+  <button id="btn-picker-back" class="card-back">← Back</button>
+</div>
+
+<!-- ── ROI Prompt ─────────────────────────────────────────────────────── -->
+<div id="phase-roi-prompt" class="phase" hidden>
+  <div class="center-card">
+    <h1>Detection zone</h1>
+    <p class="subtitle">
+      If people are visible outside the wave — on the beach, paddling out,
+      in the channel — drawing a zone keeps the scan focused on where the
+      surfing actually happens and avoids false clips.
+    </p>
+    <div class="roi-prompt-actions">
+      <button id="btn-draw-roi" class="btn-primary">Draw a detection zone →</button>
+      <button id="btn-skip-roi" class="btn-secondary">Scan entire frame →</button>
+    </div>
+  </div>
+  <button id="btn-roi-back" class="card-back">← Back</button>
+</div>
+
+<!-- ── Initialising ───────────────────────────────────────────────────── -->
+<div id="phase-initializing" class="phase" hidden>
+  <div class="center-card">
+    <div class="spinner"></div>
+    <p class="init-label">Initialising detection model…</p>
+    <p class="init-sub">This takes up to 30 seconds on first run</p>
+  </div>
+  <button id="btn-init-abort" class="card-back">← Back</button>
+</div>
+
+<!-- ── Scanning ───────────────────────────────────────────────────────── -->
+<div id="phase-scanning" class="phase" hidden>
+  <div class="scan-layout">
+    <div class="scan-frame-wrap">
+      <canvas id="scan-canvas"></canvas>
+    </div>
+    <div class="scan-footer">
+      <div class="scan-status">
+        <span class="scan-status-left">
+          <button id="btn-scan-abort" class="scan-abort">← Back</button>
+          <span id="scan-label">Scanning…</span>
+        </span>
+        <span id="scan-pct">0%</span>
+      </div>
+      <div class="progress-track">
+        <canvas id="detection-overlay" class="detection-overlay"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Review ─────────────────────────────────────────────────────────── -->
+<div id="phase-review" class="phase" hidden>
+  <div class="review-layout">
+
+    <!-- Video preview -->
+    <video id="review-preview" class="review-preview" muted preload="metadata"></video>
+
+    <!-- Timeline -->
+    <div class="timeline-wrap">
+      <canvas id="timeline-canvas"></canvas>
+    </div>
+
+    <!-- Analysis settings (collapsible) -->
+    <details id="analysis-panel" class="analysis-panel">
+      <summary>Analysis settings</summary>
+      <div class="analysis-body">
+        <label>
+          Smooth gaps
+          <span class="setting-value" id="gap-fill-val">2.0 s</span>
+          <input type="range" id="gap-fill" min="0" max="10" step="0.5" value="2" />
+        </label>
+        <label>
+          Clip padding
+          <span class="setting-value" id="padding-val">1.0 s</span>
+          <input type="range" id="padding" min="0" max="5" step="0.5" value="1" />
+        </label>
+        <div class="roi-row">
+          <span>Detection zone</span>
+          <span id="roi-status" class="roi-status roi-off">None</span>
+          <button id="btn-edit-roi" class="btn-secondary btn-sm">Edit…</button>
+          <button id="btn-clear-roi" class="btn-secondary btn-sm" hidden>Clear</button>
+        </div>
+        <button id="btn-reanalyse" class="btn-primary btn-sm">Re-analyse</button>
+      </div>
+    </details>
+
+    <!-- Clip list -->
+    <div class="clip-list" id="clip-list"></div>
+
+    <!-- Footer -->
+    <div class="review-footer">
+      <span id="clip-count-label">0 clips approved</span>
+      <div class="footer-actions">
+        <button id="btn-cancel" class="btn-secondary">Cancel</button>
+        <button id="btn-next-export" class="btn-primary">Next: Export →</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── ROI Editor Modal ────────────────────────────────────────────────── -->
+<div id="roi-modal" class="modal-backdrop" hidden>
+  <div class="modal">
+    <h2>Detection zone</h2>
+    <p class="modal-sub">
+      The footage loops behind the zone so you can see where the surfing
+      happens. Click to add polygon vertices. Click near the first point to close.
+    </p>
+    <div class="roi-canvas-wrap">
+      <canvas id="roi-bg-canvas" class="roi-bg"></canvas>
+      <canvas id="roi-canvas"></canvas>
+    </div>
+    <div class="modal-footer">
+      <button id="btn-roi-reset" class="btn-secondary">Reset (r)</button>
+      <div>
+        <button id="btn-roi-cancel" class="btn-secondary">Cancel</button>
+        <button id="btn-roi-apply" class="btn-primary">Apply zone</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Crop Editor Modal ──────────────────────────────────────────────── -->
+<div id="crop-modal" class="modal-backdrop" hidden>
+  <div class="modal">
+    <h2>Export crop</h2>
+    <p class="modal-sub">
+      The first approved clip loops behind the selection so you can frame the
+      action. Drag on the frame to select the region to keep. Drag inside to
+      move it, the square handles to resize. The same crop is applied to every
+      exported clip.
+    </p>
+    <div class="roi-canvas-wrap">
+      <video id="crop-bg-video" class="roi-bg" muted playsinline preload="auto"></video>
+      <canvas id="crop-canvas"></canvas>
+    </div>
+    <div class="crop-presets" id="crop-presets">
+      <span class="setting-label">Presets</span>
+      <button class="btn-toggle" data-cw="1920" data-ch="1080">Landscape 1080p</button>
+      <button class="btn-toggle" data-cw="1280" data-ch="720">Landscape 720p</button>
+      <button class="btn-toggle" data-cw="1080" data-ch="1920">Portrait 1080p</button>
+      <button class="btn-toggle" data-cw="720" data-ch="1280">Portrait 720p</button>
+      <button class="btn-toggle" data-cw="1080" data-ch="1350">Instagram 4:5 · 1080</button>
+      <button class="btn-toggle" data-cw="720" data-ch="900">Instagram 4:5 · 720</button>
+      <button class="btn-toggle" data-cw="1080" data-ch="1080">Instagram 1:1 · 1080</button>
+      <button class="btn-toggle" data-cw="720" data-ch="720">Instagram 1:1 · 720</button>
+    </div>
+    <label class="crop-lock">
+      <input type="checkbox" id="crop-lock-aspect" />
+      Lock aspect ratio — resizing scales the box proportionally
+    </label>
+    <div class="modal-footer">
+      <span id="crop-dims" class="modal-sub">Full frame</span>
+      <div>
+        <button id="btn-crop-reset" class="btn-secondary">Reset</button>
+        <button id="btn-crop-cancel" class="btn-secondary">Cancel</button>
+        <button id="btn-crop-apply" class="btn-primary">Apply crop</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Export Settings ────────────────────────────────────────────────── -->
+<div id="phase-export-settings" class="phase" hidden>
+  <div class="export-layout">
+    <div class="export-preview-wrap">
+      <video id="export-preview" class="export-preview" muted playsinline preload="metadata"></video>
+      <div id="export-preview-caption" class="export-preview-caption"></div>
+    </div>
+    <div class="export-settings-bar">
+      <div class="setting-group">
+        <span class="setting-label">Session</span>
+        <span id="session-label" class="roi-status roi-on">—</span>
+      </div>
+      <div class="setting-group">
+        <span class="setting-label">Resolution</span>
+        <div class="btn-group" id="res-group">
+          <button class="btn-toggle active" data-res="original">Original</button>
+          <button class="btn-toggle" data-res="1080p">1080p</button>
+          <button class="btn-toggle" data-res="720p">720p</button>
+          <button class="btn-toggle" data-res="540p">540p</button>
+        </div>
+      </div>
+      <div class="setting-group">
+        <span class="setting-label">Quality (CRF)</span>
+        <span class="info-tip" tabindex="0" role="note" aria-label="Quality (CRF) explained"
+              data-tip="Constant Rate Factor — the quality target the AV1 encoder aims at when re-encoding each clip. Lower means better quality and larger files; higher means smaller files and more compression artefacts. On AV1 the scale runs 0–63: 0 is lossless, 30 is the default, 63 is the worst. Useful range is roughly 24–40.">i</span>
+        <input type="range" id="crf-slider" min="0" max="63" value="30" />
+        <span id="crf-val">30</span>
+      </div>
+      <div class="setting-group">
+        <span class="setting-label">Crop</span>
+        <span id="crop-status" class="roi-status roi-off">Full frame</span>
+        <button id="btn-edit-crop" class="btn-secondary btn-sm">Edit…</button>
+        <button id="btn-clear-crop" class="btn-secondary btn-sm" hidden>Clear</button>
+      </div>
+      <div class="setting-group setting-group-wide">
+        <span class="setting-label">Output directory</span>
+        <input type="text" id="output-dir-input" />
+        <button id="btn-browse-dir" class="btn-secondary btn-sm">Browse…</button>
+      </div>
+    </div>
+
+    <p class="export-hint">
+      Hover a clip to preview it above. Click to select one or more, then type a
+      folder name to group them (e.g. surfer names).
+    </p>
+
+    <div class="export-grid" id="export-grid"></div>
+
+    <div class="export-footer">
+      <button id="btn-back" class="btn-secondary">← Back</button>
+      <div class="footer-actions">
+        <input type="text" id="group-name-input" placeholder="Folder name…" />
+        <button id="btn-assign-group" class="btn-secondary btn-sm">Assign to folder</button>
+        <span id="export-size-total" class="export-size-total"></span>
+        <button id="btn-export" class="btn-primary">Export <span id="export-count">0</span> clips →</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Exporting ──────────────────────────────────────────────────────── -->
+<div id="phase-exporting" class="phase" hidden>
+  <div class="center-card">
+    <div class="spinner"></div>
+    <p class="init-label" id="export-status-label">Exporting clips…</p>
+    <p class="init-sub">You can close the window when done.</p>
+    <div class="progress-track" style="margin-top:16px;">
+      <div id="export-progress-fill" class="progress-fill"></div>
+    </div>
+    <p id="export-file-label" class="export-file-label"></p>
+  </div>
+</div>
+
+<!-- ── Done ──────────────────────────────────────────────────────────── -->
+<div id="phase-done" class="phase" hidden>
+  <div class="center-card">
+    <div class="done-icon">✓</div>
+    <h2>Export complete</h2>
+    <p id="done-summary" class="done-summary"></p>
+    <p class="init-sub">Results have been printed to the terminal.</p>
+    <div class="done-actions">
+      <button id="btn-another-video" class="btn-primary">Weiteres Video bearbeiten</button>
+      <button id="btn-new-session" class="btn-secondary">Neue Session beginnen</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Error toast ───────────────────────────────────────────────────── -->
+<div id="error-toast" class="error-toast" hidden></div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
