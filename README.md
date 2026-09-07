@@ -1,4 +1,4 @@
-# surf-clipper
+# gopro-still-clipper
 
 A local desktop tool that scans a long GoPro surf session recording, detects
 the segments where someone is actually surfing (via person detection), and
@@ -33,8 +33,8 @@ source .venv/bin/activate
 pip install -e .
 ```
 
-This installs the `surf-clipper` package in editable mode and registers the
-`surf-clipper` console script (see `pyproject.toml`). It pulls in FastAPI,
+This installs the `gopro-still-clipper` package in editable mode and registers the
+`gopro-still-clipper` console script (see `pyproject.toml`). It pulls in FastAPI,
 uvicorn, OpenCV, Ultralytics (YOLOv8), and NumPy.
 
 The YOLOv8n weights (`yolov8n.pt`, ~6 MB) are **not** included in this
@@ -46,13 +46,13 @@ for a machine with no internet, drop a `yolov8n.pt` into the repo root
 ### Run
 
 ```bash
-surf-clipper /path/to/gopro_session.mp4
+gopro-still-clipper /path/to/gopro_session.mp4
 ```
 
 or, without installing the script entry point:
 
 ```bash
-python -m surf_clipper /path/to/gopro_session.mp4
+python -m gopro_still_clipper /path/to/gopro_session.mp4
 ```
 
 This starts a local server (default `http://localhost:8765`) and opens it
@@ -108,10 +108,10 @@ Examples:
 
 ```bash
 # Batch-process a session, trusting the detector, skip manual review
-surf-clipper session.mp4 --skip-review --frame-step 15
+gopro-still-clipper session.mp4 --skip-review --frame-step 15
 
 # Reuse a saved detection zone from a previous session
-surf-clipper session.mp4 --roi zones/lineup.json
+gopro-still-clipper session.mp4 --roi zones/lineup.json
 ```
 
 ---
